@@ -3,6 +3,8 @@
 / {
     aliases {
         led0 = &debug_led;
+        led1 = &output_y0;
+        led2 = &output_y1;
     };
 
     /* Extend the existing stm32f4_disco 'leds' node. */
@@ -12,6 +14,16 @@
         debug_led: debug_led {
             gpios = <&gpioe 4 GPIO_ACTIVE_HIGH>;
             label = "Debug LED PE4";
+        };
+
+        output_y0: output_y0 {
+            gpios = <&gpioe 5 GPIO_ACTIVE_HIGH>;
+            label = "Output Y0 PE5";
+        };
+
+        output_y1: output_y1 {
+            gpios = <&gpioe 6 GPIO_ACTIVE_HIGH>;
+            label = "Output Y1 PE6";
         };
     };
 };
