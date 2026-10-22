@@ -3,3 +3,5 @@
 .cache/
 *.pyc
 __pycache__/
+
+firmware/
