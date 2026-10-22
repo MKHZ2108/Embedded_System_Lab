@@ -16,7 +16,7 @@ void thread_led_blinky(void *p1, void *p2, void *p3)
         k_msleep(1000);            /* Giữ sáng 1 giây */
 
         gpio_pin_set_dt(&led3, 0); /* TẮT LED3 */
-        k_msleep(2000);            /* Giữ tắt 2 giây */
+        k_msleep(6000);            /* Giữ tắt 2 giây */ 
     }
 }
 
