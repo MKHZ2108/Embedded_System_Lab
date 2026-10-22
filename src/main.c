@@ -2,51 +2,58 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/sys/printk.h>
 
-static const struct gpio_dt_spec led3 = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
-static const struct gpio_dt_spec y0   = GPIO_DT_SPEC_GET(DT_ALIAS(led1), gpios);
-static const struct gpio_dt_spec y1   = GPIO_DT_SPEC_GET(DT_ALIAS(led2), gpios);
+struct blink_cfg {
+    struct gpio_dt_spec led;
+    int on_ms;
+    int off_ms;
+};
 
-/* Luồng 1: LED3 chớp 1.5s ON / 0.5s OFF */
-void thread_led_blinky(void *p1, void *p2, void *p3)
+/* Cấu hình riêng cho từng đèn */
+static const struct blink_cfg cfg_led3 = {
+    .led = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios),
+    .on_ms = 2000,
+    .off_ms = 2000
+};
+
+static const struct blink_cfg cfg_y0 = {
+    .led = GPIO_DT_SPEC_GET(DT_ALIAS(led1), gpios),
+    .on_ms = 500,
+    .off_ms = 500
+};
+
+static const struct blink_cfg cfg_y1 = {
+    .led = GPIO_DT_SPEC_GET(DT_ALIAS(led2), gpios),
+    .on_ms = 3000,
+    .off_ms = 1000
+};
+
+/*
+ * GIẢI THÍCH (THEO YÊU CẦU ĐỀ BÀI):
+ * Ba hàm luồng riêng biệt là không cần thiết vì toàn bộ logic điều khiển của 3 đèn
+ * là hoàn toàn giống nhau (bật đèn -> ngủ on_ms -> tắt đèn -> ngủ off_ms).
+ * Bằng cách truyền con trỏ cấu hình qua tham số p1, ta tái sử dụng được mã nguồn,
+ * giúp tiết kiệm bộ nhớ Flash của vi điều khiển và code dễ bảo trì hơn.
+ */
+void thread_blink(void *p1, void *p2, void *p3)
 {
-    if (!gpio_is_ready_dt(&led3)) return;
-    gpio_pin_configure_dt(&led3, GPIO_OUTPUT_INACTIVE);
+    const struct blink_cfg *cfg = (const struct blink_cfg *)p1;
+
+    if (!gpio_is_ready_dt(&cfg->led)) return;
+    gpio_pin_configure_dt(&cfg->led, GPIO_OUTPUT_INACTIVE);
 
     while (1) {
-        gpio_pin_set_dt(&led3, 1);
-        k_msleep(1500);
-        gpio_pin_set_dt(&led3, 0);
-        k_msleep(500);
+        gpio_pin_set_dt(&cfg->led, 1);
+        k_msleep(cfg->on_ms);
+
+        gpio_pin_set_dt(&cfg->led, 0);
+        k_msleep(cfg->off_ms);
     }
 }
 
-/* Luồng 2: Chu kỳ 3 trạng thái của Y0 và Y1 */
-void thread_output_sequence(void *p1, void *p2, void *p3)
-{
-    if (!gpio_is_ready_dt(&y0) || !gpio_is_ready_dt(&y1)) return;
-    gpio_pin_configure_dt(&y0, GPIO_OUTPUT_INACTIVE);
-    gpio_pin_configure_dt(&y1, GPIO_OUTPUT_INACTIVE);
-
-    while (1) {
-        /* Trạng thái 1: Chỉ Y0 bật trong 1s */
-        gpio_pin_set_dt(&y0, 1);
-        gpio_pin_set_dt(&y1, 0);
-        k_msleep(1000);
-
-        /* Trạng thái 2: Chỉ Y1 bật trong 2s */
-        gpio_pin_set_dt(&y0, 0);
-        gpio_pin_set_dt(&y1, 1);
-        k_msleep(2000);
-
-        /* Trạng thái 3: Cả Y0 và Y1 cùng bật trong 2s */
-        gpio_pin_set_dt(&y0, 1);
-        gpio_pin_set_dt(&y1, 1);
-        k_msleep(2000);
-    }
-}
-
-K_THREAD_DEFINE(t_led, 1024, thread_led_blinky, NULL, NULL, NULL, 7, 0, 0);
-K_THREAD_DEFINE(t_seq, 1024, thread_output_sequence, NULL, NULL, NULL, 7, 0, 0);
+/* 3 luồng cùng dùng chung 1 hàm thread_blink nhưng truyền 3 biến cấu hình khác nhau */
+K_THREAD_DEFINE(t_led3, 1024, thread_blink, (void *)&cfg_led3, NULL, NULL, 7, 0, 0);
+K_THREAD_DEFINE(t_y0,   1024, thread_blink, (void *)&cfg_y0,   NULL, NULL, 7, 0, 0);
+K_THREAD_DEFINE(t_y1,   1024, thread_blink, (void *)&cfg_y1,   NULL, NULL, 7, 0, 0);
 
 int main(void)
 {
