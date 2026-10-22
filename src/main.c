@@ -2,58 +2,62 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/sys/printk.h>
 
-struct blink_cfg {
-    struct gpio_dt_spec led;
-    int on_ms;
-    int off_ms;
+static const struct gpio_dt_spec led3 = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
+static const struct gpio_dt_spec y0   = GPIO_DT_SPEC_GET(DT_ALIAS(led1), gpios);
+static const struct gpio_dt_spec y1   = GPIO_DT_SPEC_GET(DT_ALIAS(led2), gpios);
+
+struct phase {
+    const char *name;
+    int y0;
+    int y1;
+    int ms;
 };
 
-/* Cấu hình riêng cho từng đèn */
-static const struct blink_cfg cfg_led3 = {
-    .led = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios),
-    .on_ms = 2000,
-    .off_ms = 2000
+/* Mảng lưu 3 pha đèn giao thông */
+static const struct phase traffic_phases[] = {
+    { .name = "RED",   .y0 = 1, .y1 = 0, .ms = 7000 },
+    { .name = "GREEN", .y0 = 0, .y1 = 1, .ms = 5000 },
+    { .name = "AMBER", .y0 = 1, .y1 = 1, .ms = 2000 },
 };
 
-static const struct blink_cfg cfg_y0 = {
-    .led = GPIO_DT_SPEC_GET(DT_ALIAS(led1), gpios),
-    .on_ms = 500,
-    .off_ms = 500
-};
-
-static const struct blink_cfg cfg_y1 = {
-    .led = GPIO_DT_SPEC_GET(DT_ALIAS(led2), gpios),
-    .on_ms = 3000,
-    .off_ms = 1000
-};
-
-/*
- * GIẢI THÍCH (THEO YÊU CẦU ĐỀ BÀI):
- * Ba hàm luồng riêng biệt là không cần thiết vì toàn bộ logic điều khiển của 3 đèn
- * là hoàn toàn giống nhau (bật đèn -> ngủ on_ms -> tắt đèn -> ngủ off_ms).
- * Bằng cách truyền con trỏ cấu hình qua tham số p1, ta tái sử dụng được mã nguồn,
- * giúp tiết kiệm bộ nhớ Flash của vi điều khiển và code dễ bảo trì hơn.
- */
-void thread_blink(void *p1, void *p2, void *p3)
+/* Luồng 1: Đèn LED3 báo hệ thống đang chạy (Alive indicator) */
+void thread_led_blinky(void *p1, void *p2, void *p3)
 {
-    const struct blink_cfg *cfg = (const struct blink_cfg *)p1;
-
-    if (!gpio_is_ready_dt(&cfg->led)) return;
-    gpio_pin_configure_dt(&cfg->led, GPIO_OUTPUT_INACTIVE);
+    if (!gpio_is_ready_dt(&led3)) return;
+    gpio_pin_configure_dt(&led3, GPIO_OUTPUT_INACTIVE);
 
     while (1) {
-        gpio_pin_set_dt(&cfg->led, 1);
-        k_msleep(cfg->on_ms);
-
-        gpio_pin_set_dt(&cfg->led, 0);
-        k_msleep(cfg->off_ms);
+        gpio_pin_set_dt(&led3, 1);
+        k_msleep(1000);
+        gpio_pin_set_dt(&led3, 0);
+        k_msleep(1000);
     }
 }
 
-/* 3 luồng cùng dùng chung 1 hàm thread_blink nhưng truyền 3 biến cấu hình khác nhau */
-K_THREAD_DEFINE(t_led3, 1024, thread_blink, (void *)&cfg_led3, NULL, NULL, 7, 0, 0);
-K_THREAD_DEFINE(t_y0,   1024, thread_blink, (void *)&cfg_y0,   NULL, NULL, 7, 0, 0);
-K_THREAD_DEFINE(t_y1,   1024, thread_blink, (void *)&cfg_y1,   NULL, NULL, 7, 0, 0);
+/* Luồng 2: Điều khiển chu trình đèn giao thông */
+void thread_traffic_light(void *p1, void *p2, void *p3)
+{
+    if (!gpio_is_ready_dt(&y0) || !gpio_is_ready_dt(&y1)) return;
+    gpio_pin_configure_dt(&y0, GPIO_OUTPUT_INACTIVE);
+    gpio_pin_configure_dt(&y1, GPIO_OUTPUT_INACTIVE);
+
+    while (1) {
+        /* Duyệt qua từng pha đèn trong mảng */
+        for (int i = 0; i < 3; i++) {
+            const struct phase *p = &traffic_phases[i];
+
+            gpio_pin_set_dt(&y0, p->y0);
+            gpio_pin_set_dt(&y1, p->y1);
+
+            printk("[LIGHT] %s - %d s\n", p->name, p->ms / 1000);
+
+            k_msleep(p->ms);
+        }
+    }
+}
+
+K_THREAD_DEFINE(t_alive,   1024, thread_led_blinky,    NULL, NULL, NULL, 7, 0, 0);
+K_THREAD_DEFINE(t_traffic, 1024, thread_traffic_light, NULL, NULL, NULL, 7, 0, 0);
 
 int main(void)
 {
