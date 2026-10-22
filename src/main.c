@@ -4,42 +4,49 @@
 
 static const struct gpio_dt_spec led3 = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
 static const struct gpio_dt_spec y0   = GPIO_DT_SPEC_GET(DT_ALIAS(led1), gpios);
+static const struct gpio_dt_spec y1   = GPIO_DT_SPEC_GET(DT_ALIAS(led2), gpios);
 
-
-static volatile bool led_state = false;
-
-/* Luồng 1: Điều khiển LED3 và cập nhật biến dùng chung */
+/* Luồng 1: LED3 chớp 1.5s ON / 0.5s OFF */
 void thread_led_blinky(void *p1, void *p2, void *p3)
 {
     if (!gpio_is_ready_dt(&led3)) return;
     gpio_pin_configure_dt(&led3, GPIO_OUTPUT_INACTIVE);
 
     while (1) {
-        led_state = true;
         gpio_pin_set_dt(&led3, 1);
-        k_msleep(2000); /* Sáng 2 giây */
-
-        led_state = false;
+        k_msleep(1500);
         gpio_pin_set_dt(&led3, 0);
-        k_msleep(2000); /* Tắt 2 giây */
+        k_msleep(500);
     }
 }
 
-/* Luồng 2: Bám theo trạng thái của LED3, không tự đếm thời gian 2 giây */
-void thread_y0_follow(void *p1, void *p2, void *p3)
+/* Luồng 2: Chu kỳ 3 trạng thái của Y0 và Y1 */
+void thread_output_sequence(void *p1, void *p2, void *p3)
 {
-    if (!gpio_is_ready_dt(&y0)) return;
+    if (!gpio_is_ready_dt(&y0) || !gpio_is_ready_dt(&y1)) return;
     gpio_pin_configure_dt(&y0, GPIO_OUTPUT_INACTIVE);
+    gpio_pin_configure_dt(&y1, GPIO_OUTPUT_INACTIVE);
 
     while (1) {
-        /* Thăm dò biến led_state và cập nhật đèn Y0 */
-        gpio_pin_set_dt(&y0, led_state ? 1 : 0);
-        k_msleep(10); /* Quét mỗi 10ms */
+        /* Trạng thái 1: Chỉ Y0 bật trong 1s */
+        gpio_pin_set_dt(&y0, 1);
+        gpio_pin_set_dt(&y1, 0);
+        k_msleep(1000);
+
+        /* Trạng thái 2: Chỉ Y1 bật trong 2s */
+        gpio_pin_set_dt(&y0, 0);
+        gpio_pin_set_dt(&y1, 1);
+        k_msleep(2000);
+
+        /* Trạng thái 3: Cả Y0 và Y1 cùng bật trong 2s */
+        gpio_pin_set_dt(&y0, 1);
+        gpio_pin_set_dt(&y1, 1);
+        k_msleep(2000);
     }
 }
 
-K_THREAD_DEFINE(t_blinky, 1024, thread_led_blinky, NULL, NULL, NULL, 7, 0, 0);
-K_THREAD_DEFINE(t_follow, 1024, thread_y0_follow, NULL, NULL, NULL, 7, 0, 0);
+K_THREAD_DEFINE(t_led, 1024, thread_led_blinky, NULL, NULL, NULL, 7, 0, 0);
+K_THREAD_DEFINE(t_seq, 1024, thread_output_sequence, NULL, NULL, NULL, 7, 0, 0);
 
 int main(void)
 {
